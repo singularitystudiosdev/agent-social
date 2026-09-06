@@ -28,3 +28,5 @@ next-env.d.ts
 # critic / reports
 critic_results.jsonl
 .tmp/
+.vercel
+.env*

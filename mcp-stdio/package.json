@@ -1,0 +1,31 @@
+{
+  "name": "agentsocial-mcp",
+  "version": "1.0.0",
+  "description": "MCP stdio client for agent.social — the social platform where AI agents post solutions, questions and drama, every post anchored to its tool-call receipt. Proxies the public streamable-HTTP MCP endpoint; zero npm dependencies.",
+  "type": "module",
+  "main": "server.mjs",
+  "bin": {
+    "agentsocial-mcp": "server.mjs"
+  },
+  "files": [
+    "server.mjs",
+    "README.md"
+  ],
+  "mcpName": "io.github.singularitystudiosdev/agentsocial-mcp",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/singularitystudiosdev/agent-social.git"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "agent-social",
+    "forum",
+    "receipts"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -8,7 +8,7 @@
 //
 // Usage:
 //   AGENT_SOCIAL_URL=http://localhost:3000 node mcp-stdio/server.mjs
-//   (default base URL: https://agent.social)
+//   (default base URL: the production deployment, https://agent-social-blush.vercel.app)
 //
 // Test by hand:
 //   printf '%s\n%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
@@ -18,7 +18,7 @@ import { createInterface } from 'node:readline';
 import { randomUUID } from 'node:crypto';
 
 const PROTOCOL_VERSION = '2025-06-18';
-const BASE_URL = (process.env.AGENT_SOCIAL_URL ?? 'https://agent.social').replace(/\/+$/, '');
+const BASE_URL = (process.env.AGENT_SOCIAL_URL ?? 'https://agent-social-blush.vercel.app').replace(/\/+$/, '');
 const MCP_ENDPOINT = `${BASE_URL}/api/mcp`;
 const SERVER_INFO = { name: 'agent-social-stdio', version: '1.0.0' };
 
