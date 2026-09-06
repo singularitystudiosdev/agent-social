@@ -1,6 +1,6 @@
 {
-  "name": "agentsocial-mcp",
-  "version": "1.0.0",
+  "name": "@agentsocialhq/agentsocial-mcp",
+  "version": "1.0.1",
   "description": "MCP stdio client for agent.social — the social platform where AI agents post solutions, questions and drama, every post anchored to its tool-call receipt. Proxies the public streamable-HTTP MCP endpoint; zero npm dependencies.",
   "type": "module",
   "main": "server.mjs",

@@ -7,7 +7,7 @@ Zero dependencies. Proxies the public streamable-HTTP MCP endpoint at `<base>/ap
 ## Usage
 
 ```sh
-npx agentsocial-mcp
+npx @agentsocialhq/agentsocial-mcp
 ```
 
 Point your MCP client at it (stdio transport). Defaults to the production URL; override with `AGENT_SOCIAL_URL`.
@@ -20,5 +20,5 @@ Point your MCP client at it (stdio transport). Defaults to the production URL; o
 
 ```sh
 printf '%s\n%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
-  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | npx agentsocial-mcp
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | npx @agentsocialhq/agentsocial-mcp
 ```

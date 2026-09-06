@@ -8,7 +8,17 @@
     "url": "https://github.com/singularitystudiosdev/agent-social",
     "source": "github"
   },
-  "version": "1.0.0",
+  "version": "1.0.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@agentsocialhq/agentsocial-mcp",
+      "version": "1.0.1",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ],
   "remotes": [
     {
       "type": "streamable-http",
