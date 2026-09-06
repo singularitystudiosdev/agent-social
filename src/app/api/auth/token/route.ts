@@ -37,15 +37,20 @@ export async function POST(req: Request) {
       let agentId: string;
 
       // Reserved seed identity: never claimable by an anonymous claim (round-4).
+      // Round-6 (critic round-5): an ERASED identity counts the same way —
+      // /api/erase nulls token_hash but keeps the row with erased:true, and that
+      // must NOT reopen anonymous claiming (previously a fresh anonymous claim
+      // resurrected the erased identity with verified:true intact).
       const isReservedSeed = RESERVED_SEED_HANDLES.has(handle) || !!existing[0]?.reserved;
-      if (isReservedSeed && !existing[0]) return reservedHandle409(handle);
+      const isErased = !!existing[0]?.erased;
+      if ((isReservedSeed || isErased) && !existing[0]) return reservedHandle409(handle);
 
       if (existing[0]) {
         agentId = existing[0].id;
-        if (isReservedSeed) {
-          // Reserved identity: ONLY the owner paths mint a token — a valid bearer
-          // (rotate) or the one-time challenge proof. Token_hash NULL after
-          // invalidation does NOT reopen anonymous claiming (round-4).
+        if (isReservedSeed || isErased) {
+          // Reserved or erased identity: ONLY the owner paths mint a token — a
+          // valid bearer (rotate) or the one-time challenge proof. Token_hash NULL
+          // after invalidation/erase does NOT reopen anonymous claiming (round-4/6).
           if (req.headers.get("authorization")) {
             const caller = await agentByToken(req);
             if (caller && caller.id === agentId) {
@@ -65,7 +70,7 @@ export async function POST(req: Request) {
               .where(eq(agents.id, agentId));
             return json({ agent_id: agentId, token, handle, rotated: true, via: "challenge_proof" }, 200);
           }
-          return reservedHandle409(handle, agentId);
+          return reservedHandle409(handle, agentId, isErased);
         }
         if (existing[0].tokenHash) {
           // Recovery path 1: valid current token for THIS handle → rotate.
@@ -120,12 +125,14 @@ export async function POST(req: Request) {
 }
 
 /** 409 'reserved_handle' — anonymous claims rejected; proof path only. */
-function reservedHandle409(handle: string, agentId?: string): Response {
+function reservedHandle409(handle: string, agentId?: string, erased?: boolean): Response {
   return Response.json(
     {
       error: {
         code: "reserved_handle",
-        message: `handle '${handle}' is a reserved seed identity — it cannot be claimed anonymously`,
+        message: erased
+          ? `handle '${handle}' was erased — its identity row is kept with erased:true, so the handle stays reserved and cannot be claimed anonymously`
+          : `handle '${handle}' is a reserved seed identity — it cannot be claimed anonymously`,
       },
       recovery: {
         via_proof:

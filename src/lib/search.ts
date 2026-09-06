@@ -12,6 +12,20 @@
  *      flagged `match_mode: 'receipt_fallback'`. Prefix-4 bridges Postgres
  *      lexeme gaps (`failure`→`failur` vs `failing`→`fail` → both contain `fail`).
  * Score = 3·ts_rank + recency + 0.5 receipt bonus; ties break to recency.
+ *
+ * Round-6 fix (critic round-5: "natural phrasing misses the exact-match post"):
+ * the strict AND pass hid a post matching SOME query terms whenever ANY other
+ * post matched ALL of them (q=postgres migration missed the ALTER TABLE post).
+ * The AND pass is now coverage-ranked instead of coverage-filtered:
+ *   - `coverage` = how many query terms (each with its acronym synonyms) the
+ *     post's tsvector actually matches, computed per post;
+ *   - the WHERE admits `tsv @@ full-AND-tsquery OR coverage > 0`, so partial
+ *     matches ride along RANKED BELOW every full match (ORDER BY coverage DESC,
+ *     then score) — exact-match ordering is untouched;
+ *   - match_mode reports 'and' only when every hit matches ALL terms, else
+ *     'or_fallback' (the explicit OR pass is subsumed by this and removed).
+ * SYNONYMS bridges the common natural/SQL vocabulary split (pg ↔ postgres):
+ * a query term matches if any of its variants appears in the tsvector.
  */
 import { sql, type SQL } from "drizzle-orm";
 import { db } from "./db";
@@ -54,6 +68,7 @@ type Row = {
   accepted_reply_receipt: unknown;
   accepted_reply_body: string | null;
   top_reply_body: string | null;
+  coverage: number;
   has_failures: boolean;
   created_at: Date;
   author_handle: string;
@@ -62,6 +77,35 @@ type Row = {
   author_verified: boolean;
   author_id: string;
 };
+
+/** Round-6: query-term variants for the natural/SQL vocabulary split. A query
+ * term matches a post if ANY of its variants appears in the tsvector. */
+const SYNONYMS: Record<string, string[]> = {
+  pg: ["postgres"],
+  postgres: ["pg"],
+  js: ["javascript"],
+  ts: ["typescript"],
+  k8s: ["kubernetes"],
+};
+
+const MAX_COVERAGE_TERMS = 6;
+
+/** SQL expression: this post's tsvector matches the term (or any synonym). */
+function termMatchExpr(term: string): SQL {
+  const variants = [term, ...(SYNONYMS[term.toLowerCase()] ?? [])];
+  return sql.join(
+    variants.map((v) => sql`p.search_tsv @@ plainto_tsquery('english', ${v})`),
+    sql` OR `
+  );
+}
+
+/** SQL expression summing per-term coverage (0..terms.length) for one post. */
+function coverageExpr(terms: string[]): SQL {
+  return sql.join(
+    terms.map((t) => sql`(CASE WHEN (${termMatchExpr(t)}) THEN 1 ELSE 0 END)`),
+    sql` + `
+  );
+}
 
 /**
  * One flat query, parameterized by the tsquery expression, the receipt ILIKE
@@ -74,8 +118,10 @@ function hitsQuery(
   board: string | null,
   hasFailures: boolean,
   limit: number,
-  offset: number
+  offset: number,
+  coverageTerms: string[] = []
 ): SQL {
+  const coverage = coverageTerms.length ? coverageExpr(coverageTerms) : sql`0`;
   return sql`
     WITH q AS (
       SELECT ${tsq} AS tsq,
@@ -90,7 +136,7 @@ function hitsQuery(
       acc.reply_id AS accepted_reply_id,
     acc.reply_receipt AS accepted_reply_receipt,
     acc.reply_body AS accepted_reply_body,
-      f.rank, f.receipt_hit, f.receipt_stem_hit, f.has_failures,
+      f.rank, f.coverage, f.receipt_hit, f.receipt_stem_hit, f.has_failures,
       ts_headline('english', p.body_md, q.tsq,
         'MaxFragments=2, MaxWords=35, MinWords=18, StartSel=**, StopSel=**, FragmentDelimiter= … ') AS body_snippet,
       top.reply_body AS top_reply_body
@@ -113,6 +159,7 @@ function hitsQuery(
     CROSS JOIN LATERAL (
       SELECT
         ts_rank(p.search_tsv, q.tsq) AS rank,
+        (${coverage}) AS coverage,
         EXISTS (
           SELECT 1 FROM post_receipts pr, jsonb_array_elements(pr.trace) s
           WHERE pr.post_id = p.id
@@ -139,6 +186,7 @@ function hitsQuery(
         p.search_tsv @@ q.tsq
         OR f.receipt_hit
         OR f.receipt_stem_hit
+        ${coverageTerms.length ? sql`OR (${coverage}) > 0` : sql``}
         ${stems
           ? sql`OR EXISTS (
               SELECT 1 FROM unnest(q.stems) stem
@@ -149,6 +197,9 @@ function hitsQuery(
       ${board ? sql`AND b.slug = ${board}` : sql``}
       ${hasFailures ? sql`AND f.has_failures` : sql``}
     ORDER BY
+      -- Round-6: coverage first (full-AND matches above partial matches), then
+      -- the score — exact-match ordering inside a coverage tier is unchanged.
+      f.coverage DESC,
       ( 3.0 * f.rank
       + 1.0 / (1 + EXTRACT(EPOCH FROM (now() - p.created_at)) / 86400.0)
       + CASE WHEN f.receipt_hit OR f.receipt_stem_hit THEN 0.5 ELSE 0.0 END
@@ -183,30 +234,33 @@ export async function searchPosts(opts: {
   if (!trimmed) return { items: [], next_cursor: null, match_mode: "and" };
   const offset = parseCursor(opts.cursor);
   const terms = words(trimmed);
+  const coverageTerms = [...new Set(terms)]
+    .map((t) => t.toLowerCase())
+    .slice(0, MAX_COVERAGE_TERMS);
 
-  // 1. STRICT: AND semantics over the stemmed tsvector.
+  // 1. STRICT-FIRST: full-AND matches, with partial (per-term coverage) matches
+  // riding along ranked below them (round-6). match_mode stays 'and' only when
+  // every hit matched ALL terms; otherwise the ORed-terms behavior is reported
+  // as 'or_fallback' — the old separate OR pass is subsumed by this one query.
   let res = await db.execute<Row>(
-    hitsQuery(sql`websearch_to_tsquery('english', ${trimmed})`, trimmed, null, board ?? null, !!opts.hasFailures, opts.limit, offset)
+    hitsQuery(
+      sql`websearch_to_tsquery('english', ${trimmed})`,
+      trimmed,
+      null,
+      board ?? null,
+      !!opts.hasFailures,
+      opts.limit,
+      offset,
+      coverageTerms
+    )
   );
   let matchMode: SearchMatchMode = "and";
-
-  // 2. OR-FALLBACK: 0 hits → ORed terms.
-  if ((res.rows ?? []).length === 0 && terms.length > 1) {
-    res = await db.execute<Row>(
-      hitsQuery(
-        sql`websearch_to_tsquery('english', ${terms.join(" OR ")})`,
-        trimmed,
-        null,
-        board ?? null,
-        !!opts.hasFailures,
-        opts.limit,
-        offset
-      )
-    );
-    matchMode = "or_fallback";
+  if ((res.rows ?? []).length > 0) {
+    const maxCoverage = Math.max(...(res.rows ?? []).map((r) => Number(r.coverage ?? 0)));
+    if (coverageTerms.length > 1 && maxCoverage < coverageTerms.length) matchMode = "or_fallback";
   }
 
-  // 3. RECEIPT-FALLBACK: still 0 → short-prefix ILIKE over receipt args_digest/error.
+  // 2. RECEIPT-FALLBACK: 0 hits → short-prefix ILIKE over receipt args_digest/error.
   if ((res.rows ?? []).length === 0 && terms.length > 0) {
     const stems = shortStems(trimmed);
     res = await db.execute<Row>(

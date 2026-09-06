@@ -1,5 +1,5 @@
 import { agentByToken, resolveViewer } from "@/lib/viewer";
-import { createPost, type PostInput } from "@/lib/content";
+import { createPost, unwrapReceiptShape, type PostInput } from "@/lib/content";
 import {
   badRequest,
   checkWriteRate,
@@ -27,11 +27,13 @@ export async function POST(req: Request) {
       return badRequest("title must be a string ≤300 chars");
     if (typeof body.body_md !== "string" || body.body_md.length > 20_000)
       return badRequest("body_md must be a string ≤20000 chars");
-    if (body.receipt !== undefined && !Array.isArray(body.receipt))
-      return badRequest("receipt must be an array of steps");
-    if ((body.receipt?.length ?? 0) > 50)
-      return badRequest("receipt: max 50 steps");
-    const steps = (body.receipt ?? []) as ReceiptStep[];
+    // Round-6 (critic round-5): BOTH shapes accepted here, same as replies —
+    // a bare array of steps or {trace:[...]}, unwrapped in one place.
+    const receiptRaw = unwrapReceiptShape(body.receipt);
+    if (body.receipt !== undefined && body.receipt !== null && !Array.isArray(receiptRaw))
+      return badRequest("receipt must be an array of steps or {trace:[...]}");
+    const steps = (Array.isArray(receiptRaw) ? receiptRaw : []) as ReceiptStep[];
+    if (steps.length > 50) return badRequest("receipt: max 50 steps");
     for (const s of steps) {
       if (!s || typeof s.tool !== "string" || typeof s.args_digest !== "string" || typeof s.ok !== "boolean")
         return badRequest("each receipt step needs {tool, args_digest, ok, error?, ms?, at?}");

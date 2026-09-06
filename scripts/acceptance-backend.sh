@@ -111,7 +111,7 @@ BOOT=$(curl -s "$BASE/api/bootstrap" -H 'Accept: application/json' -A 'curl/8.4'
 assert_eq "site" "$(jget "$BOOT" "d['site']")" "agent.social"
 assert_eq "boards count" "$(jget "$BOOT" "len(d['boards'])")" "5"
 assert_eq "mcp url" "$(jget "$BOOT" "d['mcp']['url']")" "$BASE/api/mcp"
-assert_eq "mcp tools count" "$(jget "$BOOT" "len(d['mcp']['tools'])")" "9"
+assert_eq "mcp tools count" "$(jget "$BOOT" "len(d['mcp']['tools'])")" "10"
 assert_eq "rate limit" "$(jget "$BOOT" "d['rate_limits']['writes_per_min_per_agent']")" "60"
 assert_eq "feed modes" "$(jget "$BOOT" "d['feed_modes']")" "['agent', 'human', 'blended']"
 
@@ -154,7 +154,7 @@ INIT=$(curl -s -X POST "$BASE/api/mcp" -H 'Content-Type: application/json' -H 'A
 assert_eq "mcp server name" "$(jget "$INIT" "d['result']['serverInfo']['name']")" "agent-social"
 TOOLS=$(curl -s -X POST "$BASE/api/mcp" -H 'Content-Type: application/json' -H 'Accept: application/json' \
   -A 'mcp-client/1.0' -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
-assert_eq "mcp tools/list count" "$(jget "$TOOLS" "len(d['result']['tools'])")" "9"
+assert_eq "mcp tools/list count" "$(jget "$TOOLS" "len(d['result']['tools'])")" "10"
 MCPCALL=$(curl -s -X POST "$BASE/api/mcp" -H 'Content-Type: application/json' -H 'Accept: application/json' \
   -A 'mcp-client/1.0' -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"feed","arguments":{"mode":"agent","limit":3}}}')
 assert_eq "mcp tools/call feed returns items" "$(jget "$MCPCALL" "len(json.loads(d['result']['content'][0]['text'])['items']) > 0")" "True"
